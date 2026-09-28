@@ -1,0 +1,232 @@
+{
+  "name": "Assistente de Investimentos - RPA + IA",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1a111111-0000-4000-8000-000000000001",
+      "name": "Webhook Clientes",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1180, 300],
+      "webhookId": "clientes-investimentos"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "1a111111-0000-4000-8000-000000000002",
+      "name": "Buscar Opções de Investimento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1180, 520]
+    },
+    {
+      "parameters": {
+        "operation": "csv",
+        "options": {}
+      },
+      "id": "1a111111-0000-4000-8000-000000000003",
+      "name": "Ler CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [-960, 520]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "opcoes",
+        "options": {}
+      },
+      "id": "1a111111-0000-4000-8000-000000000004",
+      "name": "Agregar Opções",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [-740, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cruza cada cliente recebido no Webhook com as opções de investimento\n// do perfil correspondente (lidas do docs/data.csv via HTTP Request + Extract From File).\n\nconst clientes = $('Webhook Clientes').first().json.body.clientes;\nconst opcoes = $input.first().json.opcoes;\n\nconst contextoPerfil = {\n  Conservador: 'prioriza segurança e liquidez, aceita pouca oscilação no patrimônio',\n  Moderado: 'busca equilíbrio entre segurança e rentabilidade, tolera alguma oscilação',\n  Arrojado: 'busca maior rentabilidade no longo prazo e aceita mais oscilação e risco'\n};\n\nreturn clientes.map((cliente) => {\n  const opcoesPerfil = opcoes.filter((o) => o.perfil === cliente.perfil);\n\n  return {\n    json: {\n      nome: cliente.nome,\n      email: cliente.email,\n      saldo: cliente.saldo,\n      perfil: cliente.perfil,\n      contexto_perfil: contextoPerfil[cliente.perfil] || '',\n      opcoes: opcoesPerfil\n    }\n  };\n});\n"
+      },
+      "id": "1a111111-0000-4000-8000-000000000005",
+      "name": "Montar Recomendações",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-520, 400]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Cliente: {{ $json.nome }}\nSaldo disponível: {{ $json.saldo }}\nPerfil de investidor: {{ $json.perfil }} ({{ $json.contexto_perfil }})\n\nOpções de investimento compatíveis com o perfil dele:\n{{ $json.opcoes.map(o => `- ${o.produto} (aplicação mínima: R$ ${o.minimo}, rentabilidade: ${o.rentabilidade})`).join('\\n') }}\n\nEscreva uma mensagem curta (até 4 frases), personalizada e humanizada, recomendando 1 ou 2 dessas opções para esse cliente, explicando rapidamente por que fazem sentido para o perfil e o saldo dele. Use um tom consultivo, não robótico, sem prometer garantia de rentabilidade.",
+        "options": {
+          "systemMessage": "Você é um assistente de investimentos de uma instituição financeira. Sua função é transformar dados de clientes e opções de investimento em mensagens de recomendação personalizadas, claras e humanizadas, respeitando sempre o perfil de risco informado. Nunca invente produtos que não estejam na lista fornecida e nunca prometa retorno garantido."
+        }
+      },
+      "id": "1a111111-0000-4000-8000-000000000006",
+      "name": "Gerar Mensagem Personalizada",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-280, 400]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1a111111-0000-4000-8000-000000000007",
+      "name": "Modelo Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [-280, 620]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formata a saída final: dados do cliente + mensagem gerada pelo Agente de IA.\nconst item = $input.item.json;\n\nreturn {\n  json: {\n    nome: item.nome,\n    email: item.email,\n    perfil: item.perfil,\n    mensagem: item.output || item.text\n  }\n};\n"
+      },
+      "id": "1a111111-0000-4000-8000-000000000008",
+      "name": "Formatar Saída",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-40, 400]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "clientes_processados",
+        "options": {}
+      },
+      "id": "1a111111-0000-4000-8000-000000000009",
+      "name": "Agregar Resultado Final",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [180, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { clientes_processados: $json.clientes_processados } }}",
+        "options": {}
+      },
+      "id": "1a111111-0000-4000-8000-00000000000a",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [400, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Clientes": {
+      "main": [
+        [
+          {
+            "node": "Buscar Opções de Investimento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Opções de Investimento": {
+      "main": [
+        [
+          {
+            "node": "Ler CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler CSV": {
+      "main": [
+        [
+          {
+            "node": "Agregar Opções",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar Opções": {
+      "main": [
+        [
+          {
+            "node": "Montar Recomendações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Recomendações": {
+      "main": [
+        [
+          {
+            "node": "Gerar Mensagem Personalizada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo Gemini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gerar Mensagem Personalizada",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar Mensagem Personalizada": {
+      "main": [
+        [
+          {
+            "node": "Formatar Saída",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Saída": {
+      "main": [
+        [
+          {
+            "node": "Agregar Resultado Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar Resultado Final": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "dio-desafio-rpa-n8n-assistente-investimentos"
+  }
+}
