@@ -5,7 +5,8 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "clientes",
-        "responseMode": "responseNode",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
         "options": {}
       },
       "id": "1a111111-0000-4000-8000-000000000001",
@@ -91,7 +92,8 @@
     },
     {
       "parameters": {
-        "jsCode": "// Formata a saída final: dados do cliente + mensagem gerada pelo Agente de IA.\nconst item = $input.item.json;\n\nreturn {\n  json: {\n    nome: item.nome,\n    email: item.email,\n    perfil: item.perfil,\n    mensagem: item.output || item.text\n  }\n};\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Formata a saida final: dados do cliente + mensagem gerada pelo Agente de IA.\n// O Agente de IA (LangChain) substitui o json do item pela sua propria saida,\n// entao buscamos nome/email/perfil de volta no node \"Montar Recomendacoes\",\n// casando pelo indice (a ordem dos itens e preservada pelo Agente).\n// Processa todos os itens de uma vez (evita corrida com o node de Aggregate\n// quando o Webhook responde no modo \"When Last Node Finishes\").\nconst originais = $('Montar Recomendações').all();\nreturn $input.all().map((entry, index) => {\n  const original = originais[index] ? originais[index].json : {};\n  const item = entry.json;\n  return {\n    json: {\n      nome: original.nome,\n      email: original.email,\n      perfil: original.perfil,\n      mensagem: item.output || item.text\n    }\n  };\n});\n"
       },
       "id": "1a111111-0000-4000-8000-000000000008",
       "name": "Formatar Saída",
@@ -110,18 +112,6 @@
       "type": "n8n-nodes-base.aggregate",
       "typeVersion": 1,
       "position": [180, 400]
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ { clientes_processados: $json.clientes_processados } }}",
-        "options": {}
-      },
-      "id": "1a111111-0000-4000-8000-00000000000a",
-      "name": "Responder Webhook",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [400, 400]
     }
   ],
   "connections": {
@@ -207,17 +197,6 @@
         [
           {
             "node": "Agregar Resultado Final",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Agregar Resultado Final": {
-      "main": [
-        [
-          {
-            "node": "Responder Webhook",
             "type": "main",
             "index": 0
           }
