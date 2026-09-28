@@ -36,15 +36,15 @@ Este fork implementa o **Desafio Completo**: extração via RPA, workflow no N8N
 2. **Recepção (Webhook)** — o node **Webhook Clientes** recebe o JSON `{ "clientes": [...] }` e dispara o workflow.
 3. **Busca das opções de investimento** — o node **Buscar Opções de Investimento** faz um `GET` no `docs/data.csv` (hospedado via GitHub Pages) e o node **Ler CSV** (Extract From File) converte o CSV em uma lista de objetos `{perfil, produto, minimo, rentabilidade}`. O node **Agregar Opções** junta todas as linhas em um único array.
 4. **Cruzamento perfil × opções** — o node de código **Montar Recomendações** (JavaScript) pega a lista de clientes (vinda do Webhook) e a lista de opções (vinda do CSV) e, para cada cliente, filtra apenas as opções compatíveis com o perfil dele (Conservador, Moderado ou Arrojado), gerando um item por cliente já com seu contexto de perfil e as opções elegíveis.
-5. **Geração da mensagem com IA** — o node **Gerar Mensagem Personalizada** é um Agente de IA do N8N conectado a um modelo de chat (**Google Gemini**, node "Modelo Gemini"). Ele recebe, por cliente, o nome, saldo, perfil e as opções compatíveis, e gera uma mensagem curta, consultiva e personalizada — nunca prometendo rentabilidade garantida nem sugerindo produtos fora da lista fornecida (isso está fixado no *system message* do agente).
-6. **Formatação e resposta** — o node **Formatar Saída** monta o objeto final (`nome`, `email`, `perfil`, `mensagem`), o node **Agregar Resultado Final** junta todas as mensagens geradas em uma lista só, e o **Responder Webhook** devolve esse array como resposta HTTP ao script Python.
+5. **Geração da mensagem com IA** — o node **Gerar Mensagem Personalizada** é um Agente de IA do N8N conectado a um modelo de chat (**Google Gemini**, node "Modelo Gemini"). Ele recebe, por cliente, o nome, saldo, perfil e as opções compatíveis, e gera uma mensagem curta, consultiva e personalizada — nunca prometendo rentabilidade garantida nem sugerindo produtos fora da lista fornecida (isso está fixado no *system message* do agente). Como o node de Agente substitui o `json` do item pela sua própria saída, o node seguinte recupera `nome`/`email`/`perfil` de volta a partir do node **Montar Recomendações**, casando os itens pelo índice (a ordem é preservada pelo Agente).
+6. **Formatação e resposta** — o node **Formatar Saída** monta o objeto final (`nome`, `email`, `perfil`, `mensagem`) processando todos os itens de uma vez, o node **Agregar Resultado Final** junta todas as mensagens geradas em uma lista só (`clientes_processados`), e o próprio node **Webhook Clientes** (com **Respond** = "When Last Node Finishes") devolve esse resultado como resposta HTTP ao script Python.
 
 ### Por que essas decisões técnicas
 
 - **CSV lido via HTTP + Extract From File, em vez de hardcoded no workflow**: mantém o workflow desacoplado dos dados — trocar as opções de investimento significa só editar o `data.csv` publicado, sem tocar no fluxo do N8N.
 - **Cruzamento feito em um node de Code, não em vários nodes de Filter/Merge**: com o volume de dados do desafio (poucos perfis, poucas opções por perfil), um único node de JavaScript é mais direto de ler e depurar do que uma cadeia de nodes visuais para essa lógica específica de filtro por perfil.
 - **Agente de IA com *system message* restritivo**: a regra "nunca invente produtos fora da lista e nunca prometa rentabilidade garantida" foi colocada diretamente no *system message* do agente (não deixada apenas implícita no prompt do usuário), para reduzir a chance de alucinação do modelo.
-- **Resposta síncrona via Respond to Webhook**: como o desafio pede uma demonstração de ponta a ponta (RPA → N8N → mensagens), a resposta HTTP devolve o resultado processado diretamente para quem chamou o Webhook (o script Python), o que facilita testar e conferir a saída sem precisar abrir o N8N para ver o resultado.
+- **Resposta síncrona via "When Last Node Finishes"**: como o desafio pede uma demonstração de ponta a ponta (RPA → N8N → mensagens), a resposta HTTP devolve o resultado processado diretamente para quem chamou o Webhook (o script Python), o que facilita testar e conferir a saída sem precisar abrir o N8N para ver o resultado.
 
 ### Estrutura do repositório
 
@@ -59,6 +59,12 @@ dio-lab-assistente-investimentos-rpa-n8n/
     ├── index.html               # Página de clientes (fornecida pelo desafio)
     └── data.csv                 # Opções de investimento por perfil (fornecida pelo desafio)
 ```
+
+### Print do fluxo funcionando de ponta a ponta
+
+![Execução completa do workflow no n8n: os 10 clientes extraídos da página são processados por todos os nodes (RPA → cruzamento com o CSV → Agente de IA com Gemini → formatação → agregação final), todos com status de sucesso](./assets/execucao-sucesso-10-clientes.jpg)
+
+A imagem acima mostra uma execução real do workflow publicado (Production URL), disparada com os 10 clientes extraídos ao vivo da página do desafio no GitHub Pages: todos os nodes concluíram com sucesso, os 10 itens passaram pelo Agente de IA (Google Gemini) e pela formatação final, e a resposta HTTP retornou as 10 mensagens personalizadas agregadas em `clientes_processados`.
 
 ### Como rodar
 
